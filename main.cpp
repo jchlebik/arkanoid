@@ -31,6 +31,9 @@ struct GameSettings
     const int paddle_width;
     const int paddle_height;
     const int paddle_speed;
+
+    const int ball_size;
+    const int ball_speed;
 };
 
 /**
@@ -47,6 +50,23 @@ struct Brick
     bool isVisible;
     int points;
 };
+
+
+/**
+ * Ball struct
+ * 
+ * SDL_Rect rect: x, y, width, height. x, y are the top left corner.
+ * int velocity_x: velocity in the x direction.
+ * int velocity_y: velocity in the y direction.
+ * 
+ */
+struct Ball
+{
+    SDL_Rect rect;
+    int velocity_x;
+    int velocity_y;
+};
+
 
 /**
  * Initialize the game.
@@ -91,30 +111,6 @@ int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_
 }
 
 /**
- * Render bricks on the screen. Right now, bricks are unicolor and hardcoded to be red.
- * 
- * Params:
- *  const std::vector<Brick>& bricks: vector of bricks to render.
- * 
- * Returns:
- * int: number of bricks still remaining on the screen.
- */
-int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks) 
-{
-    int remainingBricks = 0;
-    for (int i = 0; i < bricks.size(); i++)
-    {
-        if (bricks[i].isVisible) 
-        {
-            remainingBricks++;
-            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red
-            SDL_RenderFillRect(renderer, &bricks[i].rect);
-        }
-    }
-    return remainingBricks;
-}
-
-/**
  * Create bricks for the game.
  * 
  * Params:
@@ -149,7 +145,7 @@ std::vector<Brick> create_bricks(const GameSettings& game_constants)
 }
 
 /**
- * Create the paddle for the game.
+ * Create the paddle for the game. The paddle starts at the bottom center of the screen.
  * 
  * Params:
  * const GameSettings& game_constants: game settings created at the start of the program.
@@ -162,6 +158,50 @@ SDL_Rect create_paddle(const GameSettings& game_constants)
         .w = game_constants.paddle_width, 
         .h = game_constants.paddle_height 
     };
+}
+
+/**
+ * Create the ball for the game. The ball starts at the center of the screen with a velocity towards the top.
+ * 
+ * Params:
+ * const GameSettings& game_constants: game settings created at the start of the program.
+ */
+Ball create_ball(const GameSettings& game_constants)
+{
+    return Ball {
+        .rect = SDL_Rect{ 
+            .x = game_constants.screen_width / 2 - 10, 
+            .y = game_constants.screen_height / 2 - 10, 
+            .w = 20, 
+            .h = 20 
+        },
+        .velocity_x = game_constants.ball_speed,
+        .velocity_y = -game_constants.ball_speed
+    };
+}
+
+/**
+ * Render bricks on the screen. Right now, bricks are unicolor and hardcoded to be red.
+ * 
+ * Params:
+ *  const std::vector<Brick>& bricks: vector of bricks to render.
+ * 
+ * Returns:
+ * int: number of bricks still remaining on the screen.
+ */
+int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks) 
+{
+    int remainingBricks = 0;
+    for (int i = 0; i < bricks.size(); i++)
+    {
+        if (bricks[i].isVisible) 
+        {
+            remainingBricks++;
+            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red
+            SDL_RenderFillRect(renderer, &bricks[i].rect);
+        }
+    }
+    return remainingBricks;
 }
 
 /**
@@ -185,6 +225,44 @@ void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
     }
 }
 
+
+/**
+ * Move the ball based on its velocity. 
+ * The ball bounces off the walls and does not interact with the bricks or paddle for now.
+ * 
+ * Params:
+ * Ball& ball: ball to move.
+ * const GameSettings& game_constants: game settings created at the start of the program.
+ * 
+ */
+void move_ball(Ball& ball, const GameSettings& game_constants)
+{
+    ball.rect.x += ball.velocity_x;
+    ball.rect.y += ball.velocity_y;
+
+    // Wall collisions
+    if (ball.rect.x <= 0) // left wall
+    {
+        ball.rect.x = 0;
+        ball.velocity_x = -ball.velocity_x;
+    }
+    if (ball.rect.x + game_constants.ball_size >= game_constants.screen_width) // right wall
+    {
+        ball.rect.x = game_constants.screen_width - game_constants.ball_size;
+        ball.velocity_x = -ball.velocity_x;
+    }
+    if (ball.rect.y <= 0) // top wall
+    {
+        ball.rect.y = 0;
+        ball.velocity_y = -ball.velocity_y;
+    }
+    if (ball.rect.y + game_constants.ball_size >= game_constants.screen_height) // bottom wall
+    {
+        ball.rect.y = game_constants.screen_height - game_constants.ball_size;
+        ball.velocity_y = -ball.velocity_y;
+    }
+}
+
 /**
  * Game loop for the Arkanoid game. 
  * 
@@ -193,7 +271,12 @@ void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
  * const std::vector<Brick>& bricks: vector of bricks to render.
  * 
  */
-void game_loop(const GameSettings& game_constants, SDL_Renderer* renderer, const std::vector<Brick>& bricks, SDL_Rect& paddle)
+void game_loop(
+    const GameSettings& game_constants, 
+    SDL_Renderer* renderer, 
+    const std::vector<Brick>& bricks, 
+    SDL_Rect& paddle,
+    Ball& ball)
 {
     bool running = true;
     SDL_Event e;
@@ -211,6 +294,7 @@ void game_loop(const GameSettings& game_constants, SDL_Renderer* renderer, const
 
         // Move the paddle
         paddle_actions(paddle, game_constants);
+        move_ball(ball, game_constants);
 
         // Reset the screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black
@@ -219,6 +303,10 @@ void game_loop(const GameSettings& game_constants, SDL_Renderer* renderer, const
         // Redraw the paddle
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // White
         SDL_RenderFillRect(renderer, &paddle);
+
+        // Redraw the ball
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 255); // Green
+        SDL_RenderFillRect(renderer, &ball.rect);
 
         // Redraw the bricks
         if (render_bricks(renderer, bricks) == 0)
@@ -254,7 +342,9 @@ int main()
         .brick_height = 30,
         .paddle_width = 100,
         .paddle_height = 20,
-        .paddle_speed = 6
+        .paddle_speed = 6,
+        .ball_size = 15,
+        .ball_speed = 4
     };
 
     if (init(window, renderer, game_constants) > 0) 
@@ -265,8 +355,9 @@ int main()
     // Create bricks
     std::vector<Brick> bricks = create_bricks(game_constants);
     SDL_Rect paddle = create_paddle(game_constants);
+    Ball ball = create_ball(game_constants);
 
-    game_loop(game_constants, renderer, bricks, paddle);
+    game_loop(game_constants, renderer, bricks, paddle, ball);
 
     // Clean up
     SDL_DestroyRenderer(renderer);
