@@ -27,6 +27,10 @@ struct GameSettings
     const int brick_spacing;
     const int brick_width;
     const int brick_height;
+
+    const int paddle_width;
+    const int paddle_height;
+    const int paddle_speed;
 };
 
 /**
@@ -145,6 +149,43 @@ std::vector<Brick> create_bricks(const GameSettings& game_constants)
 }
 
 /**
+ * Create the paddle for the game.
+ * 
+ * Params:
+ * const GameSettings& game_constants: game settings created at the start of the program.
+ */
+SDL_Rect create_paddle(const GameSettings& game_constants)
+{
+    return SDL_Rect{ 
+        .x = game_constants.screen_width / 2 - game_constants.paddle_width / 2, 
+        .y = game_constants.screen_height - 50, 
+        .w = game_constants.paddle_width, 
+        .h = game_constants.paddle_height 
+    };
+}
+
+/**
+ * Move the paddle left or right based on the key press.
+ * 
+ * Params:
+ * SDL_Rect& paddle: paddle to move.
+ * const GameSettings& game_constants: game settings created at the start of the program.
+ * 
+ */
+void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
+{
+    const Uint8* keyState = SDL_GetKeyboardState(nullptr);      // left or right arrows for movement
+    if (keyState[SDL_SCANCODE_LEFT] && paddle.x > 0) 
+    {
+        paddle.x -= game_constants.paddle_speed;
+    }
+    if (keyState[SDL_SCANCODE_RIGHT] && paddle.x + paddle.w < game_constants.screen_width) 
+    {
+        paddle.x += game_constants.paddle_speed;
+    }
+}
+
+/**
  * Game loop for the Arkanoid game. 
  * 
  * Params:
@@ -152,7 +193,7 @@ std::vector<Brick> create_bricks(const GameSettings& game_constants)
  * const std::vector<Brick>& bricks: vector of bricks to render.
  * 
  */
-void game_loop(SDL_Renderer* renderer, const std::vector<Brick>& bricks)
+void game_loop(const GameSettings& game_constants, SDL_Renderer* renderer, const std::vector<Brick>& bricks, SDL_Rect& paddle)
 {
     bool running = true;
     SDL_Event e;
@@ -168,17 +209,16 @@ void game_loop(SDL_Renderer* renderer, const std::vector<Brick>& bricks)
             }
         }
 
-        // Paddle actions
-        const Uint8* keyState = SDL_GetKeyboardState(nullptr);
-        if (keyState[SDL_SCANCODE_Q] || keyState[SDL_SCANCODE_ESCAPE])
-        {
-            running = false;
-        }
-    
+        // Move the paddle
+        paddle_actions(paddle, game_constants);
 
-        // Redraw the screen
+        // Reset the screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black
         SDL_RenderClear(renderer);
+
+        // Redraw the paddle
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // White
+        SDL_RenderFillRect(renderer, &paddle);
 
         // Redraw the bricks
         if (render_bricks(renderer, bricks) == 0)
@@ -211,7 +251,10 @@ int main()
         .brick_cols = 10, 
         .brick_spacing = 4,
         .brick_width = 800 / 10, 
-        .brick_height = 30
+        .brick_height = 30,
+        .paddle_width = 100,
+        .paddle_height = 20,
+        .paddle_speed = 6
     };
 
     if (init(window, renderer, game_constants) > 0) 
@@ -221,8 +264,9 @@ int main()
 
     // Create bricks
     std::vector<Brick> bricks = create_bricks(game_constants);
+    SDL_Rect paddle = create_paddle(game_constants);
 
-    game_loop(renderer, bricks);
+    game_loop(game_constants, renderer, bricks, paddle);
 
     // Clean up
     SDL_DestroyRenderer(renderer);
