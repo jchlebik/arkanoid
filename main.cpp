@@ -51,11 +51,12 @@ struct GameSettings
  * int points: number of points player earns by hiting this brick.
  * 
  */
-struct Brick 
+struct Brick
 {
     SDL_Rect rect;
     bool is_visible;
     int points;
+    SDL_Color color;
 };
 
 
@@ -84,6 +85,7 @@ struct Score
 
     int points;
     int balls_remaining;
+    int bricks_remaining;
 };
 
 /**
@@ -160,7 +162,7 @@ Score create_score(std::string_view font_path, const GameSettings& game_settings
  * std::vector<Brick>: vector of bricks created for the game.
  * 
  * Note: Bricks are created in a grid pattern with a spacing between them.
- *      Bricks are unicolor and hardcoded to be red.
+ *      Bricks can have two colors, red or yellow, where red is 10 points and yellow 20.
  * 
  */
 std::vector<Brick> create_bricks(const GameSettings& game_settings)
@@ -170,18 +172,28 @@ std::vector<Brick> create_bricks(const GameSettings& game_settings)
     {
         for (int col = 0; col < game_settings.brick_cols; col++) 
         {
-            bricks.push_back(
-                Brick {
-                    .rect = SDL_Rect{
-                        col * game_settings.brick_width, 
-                        row * game_settings.brick_height, 
-                        game_settings.brick_width - game_settings.brick_spacing, 
-                        game_settings.brick_height - game_settings.brick_spacing
-                    },
-                    .is_visible = true,
-                    .points = 10
-                }
-            );
+            Brick b = {
+                .rect = SDL_Rect{
+                    col * game_settings.brick_width, 
+                    (game_settings.starting_row + row) * game_settings.brick_height, 
+                    game_settings.brick_width - game_settings.brick_spacing, 
+                    game_settings.brick_height - game_settings.brick_spacing
+                },
+                .is_visible = true,
+            };
+
+            if (row % 2 == 0) 
+            {
+                b.points = 10;
+                b.color = SDL_Color{ 255, 0, 0, 255 };
+            }
+            else 
+            {
+                b.points = 20;
+                b.color = SDL_Color{ 255, 255, 0, 255 };
+            }
+
+            bricks.push_back(b);
         }
     }
     return bricks;
@@ -255,10 +267,6 @@ void reset_ball(Ball& ball, const SDL_Rect& paddle, const GameSettings& game_set
  */
 void update_score(SDL_Renderer* renderer, Score& score, const GameSettings& game_settings)
 {
-    // const char* score_string = (
-    //     std::string("Score: ") + std::to_string(score.points) //+ std::string(" | Balls: ")// + std::to_string(score.balls_remaining)
-    // ).c_str();
-
     char status_string[50];
     sprintf(status_string, "Score: %d | Lives: %d", score.points, score.balls_remaining);
     
@@ -308,7 +316,7 @@ int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks)
         if (bricks[i].is_visible) 
         {
             remaining_bricks++;
-            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red
+            SDL_SetRenderDrawColor(renderer, bricks[i].color.r, bricks[i].color.g, bricks[i].color.b, bricks[i].color.a);
             SDL_RenderFillRect(renderer, &bricks[i].rect);
         }
     }
@@ -348,6 +356,40 @@ int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_setting
     return 0;
 }
 
+/**
+ * Bounce the ball off the brick based on the collision point. Right side, left side, top or bottom.
+ * 
+ * Params:
+ * Ball& ball: ball to bounce.
+ * const Brick& brick: brick to bounce off.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ * 
+ * Note: This function is called when the ball collides with a brick.
+ */
+void bounce_ball(Ball& ball, const Brick& brick, const GameSettings& game_settings)
+{
+    int overlap_left = ball.rect.x + game_settings.ball_size - brick.rect.x;
+    int overlap_right = brick.rect.x + brick.rect.w - ball.rect.x;
+    int overlap_top = ball.rect.y + game_settings.ball_size - brick.rect.y;
+    int overlap_bottom = brick.rect.y + brick.rect.h - ball.rect.y;
+
+    if (overlap_left < overlap_right && overlap_left < overlap_top && overlap_left < overlap_bottom) // left
+    {
+        ball.velocity_x = -ball.velocity_x;
+    }
+    else if (overlap_right < overlap_left && overlap_right < overlap_top && overlap_right < overlap_bottom) // right
+    {
+        ball.velocity_x = -ball.velocity_x;
+    }
+    else if (overlap_top < overlap_left && overlap_top < overlap_right && overlap_top < overlap_bottom) // top
+    {
+        ball.velocity_y = -ball.velocity_y;
+    }
+    else // bottom as a default
+    {
+        ball.velocity_y = -ball.velocity_y;
+    }
+}
 
 /**
  * Move the ball based on its velocity. 
@@ -372,6 +414,8 @@ void move_ball(
 )
 {
     bool paddle_collision = false;
+
+    // Move the ball
     ball.rect.x += ball.velocity_x;
     ball.rect.y += ball.velocity_y;
 
@@ -396,11 +440,11 @@ void move_ball(
     if (SDL_HasIntersection(&ball.rect, &paddle)) 
     {
         ball.rect.y = paddle.y - 1 - game_settings.ball_size;
-        ball.velocity_y = -ball.velocity_y;
+        ball.velocity_y = -ball.velocity_y;     // horizontal reflection, maybe add some randomness or paddle side dependency
         paddle_collision = true;
     }
 
-    if (!paddle_collision)
+    if (!paddle_collision)      // if ball collided with the paddle, no need to check for brick collisions
     {
         // Brick collisions
         for (int i = 0; i < bricks.size(); i++) 
@@ -408,8 +452,8 @@ void move_ball(
             if (bricks[i].is_visible && SDL_HasIntersection(&ball.rect, &bricks[i].rect)) 
             {
                 bricks[i].is_visible = false;
-                ball.velocity_y = -ball.velocity_y;
                 score.points += bricks[i].points;
+                bounce_ball(ball, bricks[i], game_settings);
                 break;
             }
         }
@@ -443,12 +487,13 @@ void game_loop(
     bool running = true;
     SDL_Event e;
 
-    constexpr int desired_fps = 60;
+    constexpr int desired_fps = 60; // fps is bound to physics in here, TODO: decouple
     constexpr int delta = 1000 / desired_fps;
 
     int prev_frame_points = 0;
     int prev_frame_balls = score.balls_remaining;
 
+    // Initial score render preparation
     update_score(renderer, score, game_constants);
 
     while (running) 
@@ -520,6 +565,7 @@ void game_loop(
             SDL_Delay(delta - elapsed_ms);
         }
     }
+
 }
 
 /**
@@ -534,7 +580,6 @@ void game_loop(
  */
 void cleanup(SDL_Window* window, SDL_Renderer* renderer, Score& score)
 {
-
     free_score_texture(score);
     TTF_CloseFont(score.font);
     score.font = nullptr;
@@ -563,10 +608,11 @@ int main()
 
         .starting_row = 2, 
         .brick_rows = 5, 
-        .brick_cols = 10, 
-        .brick_spacing = 4,
+        .brick_cols = 10,
+
+        .brick_spacing = 20,
         .brick_width = 800 / 10, 
-        .brick_height = 30,
+        .brick_height = 40,
 
         .paddle_width = 100,
         .paddle_height = 10,
