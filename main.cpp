@@ -31,6 +31,7 @@ struct GameSettings
     const int paddle_width;
     const int paddle_height;
     const int paddle_speed;
+    const int paddle_offset;
 
     const int ball_size;
     const int ball_speed;
@@ -40,14 +41,14 @@ struct GameSettings
  * Ball struct
  * 
  * SDL_Rect rect: x, y, width, height. x, y are the top left corner.
- * bool isVisible: this brick was hit by the ball yet or not.
+ * bool is_visible: this brick was hit by the ball yet or not.
  * int points: number of points player earns by hiting this brick.
  * 
  */
 struct Brick 
 {
     SDL_Rect rect;
-    bool isVisible;
+    bool is_visible;
     int points;
 };
 
@@ -65,6 +66,7 @@ struct Ball
     SDL_Rect rect;
     int velocity_x;
     int velocity_y;
+    bool is_moving;
 };
 
 
@@ -135,7 +137,7 @@ std::vector<Brick> create_bricks(const GameSettings& game_constants)
                         game_constants.brick_width - game_constants.brick_spacing, 
                         game_constants.brick_height - game_constants.brick_spacing
                     },
-                    .isVisible = true,
+                    .is_visible = true,
                     .points = 10
                 }
             );
@@ -154,7 +156,7 @@ SDL_Rect create_paddle(const GameSettings& game_constants)
 {
     return SDL_Rect{ 
         .x = game_constants.screen_width / 2 - game_constants.paddle_width / 2, 
-        .y = game_constants.screen_height - 50, 
+        .y = game_constants.screen_height - game_constants.paddle_offset, 
         .w = game_constants.paddle_width, 
         .h = game_constants.paddle_height 
     };
@@ -170,14 +172,28 @@ Ball create_ball(const GameSettings& game_constants)
 {
     return Ball {
         .rect = SDL_Rect{ 
-            .x = game_constants.screen_width / 2 - 10, 
-            .y = game_constants.screen_height / 2 - 10, 
-            .w = 20, 
-            .h = 20 
+            .x = game_constants.screen_width / 2, 
+            .y = game_constants.screen_height / 2, 
+            .w = game_constants.ball_size, 
+            .h = game_constants.ball_size 
         },
         .velocity_x = game_constants.ball_speed,
-        .velocity_y = -game_constants.ball_speed
+        .velocity_y = -game_constants.ball_speed,
+        .is_moving = false
     };
+}
+
+/**
+ * Reset the ball to the paddle.
+ * 
+ * Params:
+ * Ball& ball: ball to reset.
+ * const SDL_Rect& paddle: paddle to reset the ball to.
+ */
+void reset_ball(Ball& ball, const SDL_Rect& paddle, const GameSettings& game_constants)
+{
+    ball.rect.x = paddle.x + game_constants.paddle_width/2 - game_constants.ball_size/2;
+    ball.rect.y = paddle.y - 1 - game_constants.ball_size;
 }
 
 /**
@@ -191,17 +207,17 @@ Ball create_ball(const GameSettings& game_constants)
  */
 int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks) 
 {
-    int remainingBricks = 0;
+    int remaining_bricks = 0;
     for (int i = 0; i < bricks.size(); i++)
     {
-        if (bricks[i].isVisible) 
+        if (bricks[i].is_visible) 
         {
-            remainingBricks++;
+            remaining_bricks++;
             SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red
             SDL_RenderFillRect(renderer, &bricks[i].rect);
         }
     }
-    return remainingBricks;
+    return remaining_bricks;
 }
 
 /**
@@ -212,8 +228,9 @@ int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks)
  * const GameSettings& game_constants: game settings created at the start of the program.
  * 
  */
-void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
+int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_constants)
 {
+    bool paddle_state = false;
     const Uint8* keyState = SDL_GetKeyboardState(nullptr);      // left or right arrows for movement
     if (keyState[SDL_SCANCODE_LEFT] && paddle.x > 0) 
     {
@@ -223,6 +240,15 @@ void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
     {
         paddle.x += game_constants.paddle_speed;
     }
+    if (keyState[SDL_SCANCODE_SPACE] && !ball.is_moving)
+    {
+        ball.is_moving = true;
+    }
+    if (keyState[SDL_SCANCODE_Q] || keyState[SDL_SCANCODE_ESCAPE])
+    {
+        return 1;
+    }
+    return 0;
 }
 
 
@@ -235,8 +261,9 @@ void paddle_actions(SDL_Rect& paddle, const GameSettings& game_constants)
  * const GameSettings& game_constants: game settings created at the start of the program.
  * 
  */
-void move_ball(Ball& ball, const GameSettings& game_constants)
+void move_ball(Ball& ball, SDL_Rect& paddle, std::vector<Brick>& bricks, const GameSettings& game_constants)
 {
+    bool paddle_collision = false;
     ball.rect.x += ball.velocity_x;
     ball.rect.y += ball.velocity_y;
 
@@ -256,13 +283,45 @@ void move_ball(Ball& ball, const GameSettings& game_constants)
         ball.rect.y = 0;
         ball.velocity_y = -ball.velocity_y;
     }
-    if (ball.rect.y + game_constants.ball_size >= game_constants.screen_height) // bottom wall
+
+    // Paddle collision
+    if (SDL_HasIntersection(&ball.rect, &paddle)) 
     {
-        ball.rect.y = game_constants.screen_height - game_constants.ball_size;
+        ball.rect.y = paddle.y - 1 - game_constants.ball_size;
         ball.velocity_y = -ball.velocity_y;
+        paddle_collision = true;
     }
+
+    if (!paddle_collision)
+    {
+        // Brick collisions
+        for (int i = 0; i < bricks.size(); i++) 
+        {
+            if (bricks[i].is_visible && SDL_HasIntersection(&ball.rect, &bricks[i].rect)) 
+            {
+                bricks[i].is_visible = false;
+                ball.velocity_y = -ball.velocity_y;
+                //points += bricks[i].points;
+                break;
+            }
+        }
+
+        // Reset if the ball falls below the paddle
+        if (ball.rect.y > game_constants.screen_height) 
+        {
+            reset_ball(ball, paddle, game_constants);   // Ball needs to be reset
+            ball.is_moving = false;                               
+        }
+    }
+
 }
 
+void reset_ball(Ball& ball, SDL_Rect& paddle, const GameSettings& game_constants)
+{
+    ball.rect.x = paddle.x + paddle.w / 2 - game_constants.ball_size / 2;
+    ball.rect.y = paddle.y - game_constants.ball_size;
+    ball.is_moving = false;
+}
 /**
  * Game loop for the Arkanoid game. 
  * 
@@ -272,17 +331,22 @@ void move_ball(Ball& ball, const GameSettings& game_constants)
  * 
  */
 void game_loop(
-    const GameSettings& game_constants, 
-    SDL_Renderer* renderer, 
-    const std::vector<Brick>& bricks, 
+    SDL_Renderer* renderer,
+    std::vector<Brick>& bricks, 
     SDL_Rect& paddle,
-    Ball& ball)
+    Ball& ball,
+    const GameSettings& game_constants)
 {
     bool running = true;
+    int balls_remaining = 3;
     SDL_Event e;
+
+    constexpr int desired_fps = 60;
+    constexpr int delta = 1000 / desired_fps;
 
     while (running) 
     {
+        Uint64 start = SDL_GetTicks64();
         // Handle events
         while (SDL_PollEvent(&e) != 0) 
         {
@@ -292,9 +356,20 @@ void game_loop(
             }
         }
 
-        // Move the paddle
-        paddle_actions(paddle, game_constants);
-        move_ball(ball, game_constants);
+        // Handle inputs 
+        if (input_actions(paddle, ball, game_constants) > 0)
+        {
+            running = false;
+        }
+
+        if (ball.is_moving)     // ball is moving
+        {
+            move_ball(ball, paddle, bricks, game_constants);
+        }
+        else                    // ball is on the paddle ready to be launched
+        {   
+            reset_ball(ball, paddle, game_constants);
+        }
 
         // Reset the screen
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black
@@ -316,6 +391,13 @@ void game_loop(
 
         // Update render
         SDL_RenderPresent(renderer);
+
+        float elapsed_ms = (SDL_GetTicks64() - start) ;
+        if (elapsed_ms < delta)
+        {
+            // Cap to 60 FPS
+            SDL_Delay(delta - elapsed_ms);
+        }
     }
 
 }
@@ -334,16 +416,20 @@ int main()
     GameSettings game_constants{
         .screen_width = 800, 
         .screen_height = 600, 
+
         .starting_row = 2, 
         .brick_rows = 5, 
         .brick_cols = 10, 
         .brick_spacing = 4,
         .brick_width = 800 / 10, 
         .brick_height = 30,
+
         .paddle_width = 100,
-        .paddle_height = 20,
+        .paddle_height = 10,
         .paddle_speed = 6,
-        .ball_size = 15,
+        .paddle_offset = 80,
+
+        .ball_size = 10,
         .ball_speed = 4
     };
 
@@ -357,7 +443,7 @@ int main()
     SDL_Rect paddle = create_paddle(game_constants);
     Ball ball = create_ball(game_constants);
 
-    game_loop(game_constants, renderer, bricks, paddle, ball);
+    game_loop(renderer, bricks, paddle, ball, game_constants);
 
     // Clean up
     SDL_DestroyRenderer(renderer);
