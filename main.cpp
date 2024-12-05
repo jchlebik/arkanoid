@@ -14,6 +14,7 @@
 #include <iostream>
 
 #include "SDL.h"
+#include "SDL_ttf.h"
 
 // Constants
 struct GameSettings
@@ -35,6 +36,11 @@ struct GameSettings
 
     const int ball_size;
     const int ball_speed;
+
+    const int score_font_size;
+    const int score_pos_x;
+    const int score_pos_y;
+    const int num_of_balls;
 };
 
 /**
@@ -69,6 +75,16 @@ struct Ball
     bool is_moving;
 };
 
+struct Score
+{
+    TTF_Font* font;
+    SDL_Surface* text;
+    SDL_Texture* text_texture;
+    SDL_Rect dest;
+
+    int points;
+    int balls_remaining;
+};
 
 /**
  * Initialize the game.
@@ -80,7 +96,7 @@ struct Ball
  * Returns:
  * int: 0 if initialization was successful, otherwise an error code.
  */
-int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_constants) 
+int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_settings) 
 {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) 
     {
@@ -92,8 +108,8 @@ int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_
         "Arkanoid", 
         SDL_WINDOWPOS_CENTERED, 
         SDL_WINDOWPOS_CENTERED, 
-        game_constants.screen_width, 
-        game_constants.screen_height, 
+        game_settings.screen_width, 
+        game_settings.screen_height, 
         SDL_WINDOW_SHOWN
     );
     if (!window) 
@@ -109,33 +125,58 @@ int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_
         return 3;
     }
 
+    if (TTF_Init() < 0) 
+    {
+        SDL_Log("TTF could not initialize! TTF_Error: %s", TTF_GetError());
+        return 4;
+    }
+
     return 0;
+}
+
+Score create_score(std::string_view font_path, const GameSettings& game_settings)
+{
+    TTF_Font* font = TTF_OpenFont(font_path.data(), 20);
+    if (!font) 
+    {
+        SDL_Log("Failed to load font: %s\n", TTF_GetError());
+    }
+
+    return Score {
+        .font = font,
+        .points = 0,
+        .balls_remaining = game_settings.num_of_balls
+    };
 }
 
 /**
  * Create bricks for the game.
  * 
  * Params:
- * int brick_rows: number of rows of bricks.
- * int brick_cols: number of columns of bricks.
- * int brick_width: pixel width of each brick.
- * int brick_height: pixel height of each brick.
- * int bricks_spacing: pixel spacing between bricks.
+ * const GameSettings& game_settings: game settings created at the start of the program. 
+ *      Requires brick_rows, brick_cols, brick_width, brick_height, brick_spacing.
+ * 
+ * Returns:
+ * std::vector<Brick>: vector of bricks created for the game.
+ * 
+ * Note: Bricks are created in a grid pattern with a spacing between them.
+ *      Bricks are unicolor and hardcoded to be red.
+ * 
  */
-std::vector<Brick> create_bricks(const GameSettings& game_constants)
+std::vector<Brick> create_bricks(const GameSettings& game_settings)
 {
     std::vector<Brick> bricks;
-    for (int row = 0; row < game_constants.brick_rows; row++) 
+    for (int row = 0; row < game_settings.brick_rows; row++) 
     {
-        for (int col = 0; col < game_constants.brick_cols; col++) 
+        for (int col = 0; col < game_settings.brick_cols; col++) 
         {
             bricks.push_back(
                 Brick {
                     .rect = SDL_Rect{
-                        col * game_constants.brick_width, 
-                        row * game_constants.brick_height, 
-                        game_constants.brick_width - game_constants.brick_spacing, 
-                        game_constants.brick_height - game_constants.brick_spacing
+                        col * game_settings.brick_width, 
+                        row * game_settings.brick_height, 
+                        game_settings.brick_width - game_settings.brick_spacing, 
+                        game_settings.brick_height - game_settings.brick_spacing
                     },
                     .is_visible = true,
                     .points = 10
@@ -150,15 +191,16 @@ std::vector<Brick> create_bricks(const GameSettings& game_constants)
  * Create the paddle for the game. The paddle starts at the bottom center of the screen.
  * 
  * Params:
- * const GameSettings& game_constants: game settings created at the start of the program.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ *      Requires paddle_width, paddle_height, paddle_offset.
  */
-SDL_Rect create_paddle(const GameSettings& game_constants)
+SDL_Rect create_paddle(const GameSettings& game_settings)
 {
     return SDL_Rect{ 
-        .x = game_constants.screen_width / 2 - game_constants.paddle_width / 2, 
-        .y = game_constants.screen_height - game_constants.paddle_offset, 
-        .w = game_constants.paddle_width, 
-        .h = game_constants.paddle_height 
+        .x = game_settings.screen_width / 2 - game_settings.paddle_width / 2, 
+        .y = game_settings.screen_height - game_settings.paddle_offset, 
+        .w = game_settings.paddle_width, 
+        .h = game_settings.paddle_height 
     };
 }
 
@@ -166,19 +208,20 @@ SDL_Rect create_paddle(const GameSettings& game_constants)
  * Create the ball for the game. The ball starts at the center of the screen with a velocity towards the top.
  * 
  * Params:
- * const GameSettings& game_constants: game settings created at the start of the program.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ *    Requires ball_size, ball_speed.
  */
-Ball create_ball(const GameSettings& game_constants)
+Ball create_ball(const GameSettings& game_settings)
 {
     return Ball {
         .rect = SDL_Rect{ 
-            .x = game_constants.screen_width / 2, 
-            .y = game_constants.screen_height / 2, 
-            .w = game_constants.ball_size, 
-            .h = game_constants.ball_size 
+            .x = game_settings.screen_width / 2, 
+            .y = game_settings.screen_height / 2, 
+            .w = game_settings.ball_size, 
+            .h = game_settings.ball_size 
         },
-        .velocity_x = game_constants.ball_speed,
-        .velocity_y = -game_constants.ball_speed,
+        .velocity_x = game_settings.ball_speed,
+        .velocity_y = -game_settings.ball_speed,
         .is_moving = false
     };
 }
@@ -189,17 +232,69 @@ Ball create_ball(const GameSettings& game_constants)
  * Params:
  * Ball& ball: ball to reset.
  * const SDL_Rect& paddle: paddle to reset the ball to.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ *      Requires paddle_width, ball_size.
+ * 
  */
-void reset_ball(Ball& ball, const SDL_Rect& paddle, const GameSettings& game_constants)
+void reset_ball(Ball& ball, const SDL_Rect& paddle, const GameSettings& game_settings)
 {
-    ball.rect.x = paddle.x + game_constants.paddle_width/2 - game_constants.ball_size/2;
-    ball.rect.y = paddle.y - 1 - game_constants.ball_size;
+    ball.rect.x = paddle.x + game_settings.paddle_width/2 - game_settings.ball_size/2;
+    ball.rect.y = paddle.y - 1 - game_settings.ball_size;
+    ball.is_moving = false;
+}
+
+/**
+ * Update the score texture with the new score points.
+ * 
+ * Params:
+ * SDL_Renderer* renderer: renderer to draw the score.
+ * Score& score: score structure containing the font, surface and texture to update.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ * 
+ * Note: This function is called inside the game loop only when the score points are updated.
+ */
+void update_score(SDL_Renderer* renderer, Score& score, const GameSettings& game_settings)
+{
+    // const char* score_string = (
+    //     std::string("Score: ") + std::to_string(score.points) //+ std::string(" | Balls: ")// + std::to_string(score.balls_remaining)
+    // ).c_str();
+
+    char status_string[50];
+    sprintf(status_string, "Score: %d | Lives: %d", score.points, score.balls_remaining);
+    
+    score.text = TTF_RenderText_Solid(score.font, status_string, { 255, 255, 255 });
+    score.text_texture = SDL_CreateTextureFromSurface(renderer, score.text);
+    score.dest = {0, game_settings.screen_height - score.text->h - 1, score.text->w, score.text->h };
+}
+
+/**
+ * Free the score texture and surface.
+ * 
+ * Params:
+ * Score& score: score structure conaining the texture and the surface to free.
+ * 
+ * Note: This function is called inside the game loop only when the score points are updated. 
+ * Otherwise, we reuse the texture.
+ */
+void free_score_texture(Score& score)
+{
+    if (score.text_texture)
+    {
+        SDL_DestroyTexture(score.text_texture);
+        score.text_texture = nullptr;
+    }
+    if (score.text)
+    {
+        SDL_FreeSurface(score.text);
+        score.text = nullptr;
+    }
 }
 
 /**
  * Render bricks on the screen. Right now, bricks are unicolor and hardcoded to be red.
  * 
  * Params:
+ *  SDL_Renderer* renderer: renderer to draw the bricks.
  *  const std::vector<Brick>& bricks: vector of bricks to render.
  * 
  * Returns:
@@ -225,20 +320,22 @@ int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks)
  * 
  * Params:
  * SDL_Rect& paddle: paddle to move.
- * const GameSettings& game_constants: game settings created at the start of the program.
+ * Ball& ball: ball to launch.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ *      Requires screen_width, paddle_speed.
  * 
  */
-int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_constants)
+int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_settings)
 {
     bool paddle_state = false;
     const Uint8* keyState = SDL_GetKeyboardState(nullptr);      // left or right arrows for movement
     if (keyState[SDL_SCANCODE_LEFT] && paddle.x > 0) 
     {
-        paddle.x -= game_constants.paddle_speed;
+        paddle.x -= game_settings.paddle_speed;
     }
-    if (keyState[SDL_SCANCODE_RIGHT] && paddle.x + paddle.w < game_constants.screen_width) 
+    if (keyState[SDL_SCANCODE_RIGHT] && paddle.x + paddle.w < game_settings.screen_width) 
     {
-        paddle.x += game_constants.paddle_speed;
+        paddle.x += game_settings.paddle_speed;
     }
     if (keyState[SDL_SCANCODE_SPACE] && !ball.is_moving)
     {
@@ -254,14 +351,25 @@ int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_constan
 
 /**
  * Move the ball based on its velocity. 
- * The ball bounces off the walls and does not interact with the bricks or paddle for now.
+ * The ball bounces off the walls or the paddle.
  * 
  * Params:
  * Ball& ball: ball to move.
- * const GameSettings& game_constants: game settings created at the start of the program.
+ * SDL_Rect& paddle: paddle to check for collision.
+ * std::vector<Brick>& bricks: vector of bricks to check for collision.
+ * int& points: points earned by the player.
+ * int& balls_remaining: number of balls remaining.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ *    Requires screen_width, screen_height, ball_size. 
  * 
  */
-void move_ball(Ball& ball, SDL_Rect& paddle, std::vector<Brick>& bricks, const GameSettings& game_constants)
+void move_ball(
+    Ball& ball, 
+    const SDL_Rect& paddle, 
+    std::vector<Brick>& bricks, 
+    Score& score,
+    const GameSettings& game_settings 
+)
 {
     bool paddle_collision = false;
     ball.rect.x += ball.velocity_x;
@@ -273,9 +381,9 @@ void move_ball(Ball& ball, SDL_Rect& paddle, std::vector<Brick>& bricks, const G
         ball.rect.x = 0;
         ball.velocity_x = -ball.velocity_x;
     }
-    if (ball.rect.x + game_constants.ball_size >= game_constants.screen_width) // right wall
+    if (ball.rect.x + game_settings.ball_size >= game_settings.screen_width) // right wall
     {
-        ball.rect.x = game_constants.screen_width - game_constants.ball_size;
+        ball.rect.x = game_settings.screen_width - game_settings.ball_size;
         ball.velocity_x = -ball.velocity_x;
     }
     if (ball.rect.y <= 0) // top wall
@@ -287,7 +395,7 @@ void move_ball(Ball& ball, SDL_Rect& paddle, std::vector<Brick>& bricks, const G
     // Paddle collision
     if (SDL_HasIntersection(&ball.rect, &paddle)) 
     {
-        ball.rect.y = paddle.y - 1 - game_constants.ball_size;
+        ball.rect.y = paddle.y - 1 - game_settings.ball_size;
         ball.velocity_y = -ball.velocity_y;
         paddle_collision = true;
     }
@@ -301,27 +409,21 @@ void move_ball(Ball& ball, SDL_Rect& paddle, std::vector<Brick>& bricks, const G
             {
                 bricks[i].is_visible = false;
                 ball.velocity_y = -ball.velocity_y;
-                //points += bricks[i].points;
+                score.points += bricks[i].points;
                 break;
             }
         }
 
         // Reset if the ball falls below the paddle
-        if (ball.rect.y > game_constants.screen_height) 
+        if (ball.rect.y > game_settings.screen_height) 
         {
-            reset_ball(ball, paddle, game_constants);   // Ball needs to be reset
-            ball.is_moving = false;                               
+            reset_ball(ball, paddle, game_settings);   // Ball needs to be reset
+            score.balls_remaining--;
         }
     }
 
 }
 
-void reset_ball(Ball& ball, SDL_Rect& paddle, const GameSettings& game_constants)
-{
-    ball.rect.x = paddle.x + paddle.w / 2 - game_constants.ball_size / 2;
-    ball.rect.y = paddle.y - game_constants.ball_size;
-    ball.is_moving = false;
-}
 /**
  * Game loop for the Arkanoid game. 
  * 
@@ -335,14 +437,19 @@ void game_loop(
     std::vector<Brick>& bricks, 
     SDL_Rect& paddle,
     Ball& ball,
-    const GameSettings& game_constants)
-{
+    Score& score,
+    const GameSettings& game_constants
+){
     bool running = true;
-    int balls_remaining = 3;
     SDL_Event e;
 
     constexpr int desired_fps = 60;
     constexpr int delta = 1000 / desired_fps;
+
+    int prev_frame_points = 0;
+    int prev_frame_balls = score.balls_remaining;
+
+    update_score(renderer, score, game_constants);
 
     while (running) 
     {
@@ -364,11 +471,16 @@ void game_loop(
 
         if (ball.is_moving)     // ball is moving
         {
-            move_ball(ball, paddle, bricks, game_constants);
+            move_ball(ball, paddle, bricks, score, game_constants);
         }
         else                    // ball is on the paddle ready to be launched
         {   
             reset_ball(ball, paddle, game_constants);
+        }
+
+        if (score.balls_remaining < 0)
+        {
+            running = false;
         }
 
         // Reset the screen
@@ -389,6 +501,15 @@ void game_loop(
             running = false;
         }
 
+        // Render score text as a texture -- create a new texture only if the score has changed
+        if (prev_frame_points != score.points || prev_frame_balls != score.balls_remaining)
+        {
+            free_score_texture(score);
+            update_score(renderer, score, game_constants);
+        }
+        SDL_RenderCopy(renderer, score.text_texture, nullptr, &score.dest);
+        prev_frame_points = score.points;
+
         // Update render
         SDL_RenderPresent(renderer);
 
@@ -399,7 +520,30 @@ void game_loop(
             SDL_Delay(delta - elapsed_ms);
         }
     }
+}
 
+/**
+ * Clean up the game resources.
+ * 
+ * Params:
+ * SDL_Window* window: window to destroy.
+ * SDL_Renderer* renderer: renderer to destroy.
+ * Score& score: score structure containing the font, surface and texture to destroy.
+ * 
+ * Note: This function should be called at the end of the game. 
+ */
+void cleanup(SDL_Window* window, SDL_Renderer* renderer, Score& score)
+{
+
+    free_score_texture(score);
+    TTF_CloseFont(score.font);
+    score.font = nullptr;
+    SDL_DestroyRenderer(renderer);
+    renderer = nullptr;
+    SDL_DestroyWindow(window);
+    window = nullptr;
+    TTF_Quit();
+    SDL_Quit();
 }
 
 /**
@@ -412,7 +556,7 @@ int main()
 {
     SDL_Window* window = nullptr;
     SDL_Renderer* renderer = nullptr;
-    
+
     GameSettings game_constants{
         .screen_width = 800, 
         .screen_height = 600, 
@@ -430,25 +574,31 @@ int main()
         .paddle_offset = 80,
 
         .ball_size = 10,
-        .ball_speed = 4
+        .ball_speed = 4,
+
+        .score_font_size = 20,
+        .score_pos_x = 20,
+        .score_pos_y = 600 - 10,
+        .num_of_balls = 3
     };
 
     if (init(window, renderer, game_constants) > 0) 
     {
         return -1;
     }
+    SDL_RenderSetLogicalSize(renderer, game_constants.screen_width, game_constants.screen_height);
+    SDL_RenderSetIntegerScale(renderer, SDL_bool::SDL_TRUE);
 
     // Create bricks
     std::vector<Brick> bricks = create_bricks(game_constants);
     SDL_Rect paddle = create_paddle(game_constants);
     Ball ball = create_ball(game_constants);
+    Score score = create_score("assets/DejaVuSans.ttf", game_constants);
 
-    game_loop(renderer, bricks, paddle, ball, game_constants);
+    game_loop(renderer, bricks, paddle, ball, score, game_constants);
 
     // Clean up
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+    cleanup(window, renderer, score);
 
     return 0;
 }
