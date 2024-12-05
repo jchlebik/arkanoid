@@ -305,24 +305,81 @@ void free_score_texture(Score& score)
  *  SDL_Renderer* renderer: renderer to draw the bricks.
  *  const std::vector<Brick>& bricks: vector of bricks to render.
  * 
- * Returns:
- * int: number of bricks still remaining on the screen.
  */
-int render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks) 
+void render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks, Score& score) 
 {
-    int remaining_bricks = 0;
+    score.bricks_remaining = 0;
     for (int i = 0; i < bricks.size(); i++)
     {
         if (bricks[i].is_visible) 
         {
-            remaining_bricks++;
+            score.bricks_remaining ++;
             SDL_SetRenderDrawColor(renderer, bricks[i].color.r, bricks[i].color.g, bricks[i].color.b, bricks[i].color.a);
             SDL_RenderFillRect(renderer, &bricks[i].rect);
         }
     }
-    return remaining_bricks;
 }
 
+
+void show_end_screen(SDL_Renderer* renderer, Score& score, const GameSettings& game_settings)
+{
+    TTF_SetFontSize(score.font, 60);
+
+    bool won = score.bricks_remaining == 0;
+    SDL_Color color;
+
+    char status_string[17];
+    if (won)
+    {
+        color = SDL_Color{ 0, 255, 0, 255 };
+        sprintf(status_string, "Congratulations!");
+    }
+    else
+    {
+        color = SDL_Color{ 255, 0, 0, 255 };
+        sprintf(status_string, "Game Over!");
+    }
+    free_score_texture(score);
+        
+    score.text = TTF_RenderText_Solid(score.font, status_string, color);
+    score.text_texture = SDL_CreateTextureFromSurface(renderer, score.text);
+    score.dest = {
+        (game_settings.screen_width - score.text->w)/2, 
+        (game_settings.screen_height - score.text->h)/2, 
+        score.text->w, 
+        score.text->h 
+    };
+
+    constexpr int desired_fps = 60; // fps is bound to physics in here, TODO: decouple
+    constexpr int delta = 1000 / desired_fps;
+
+    SDL_Event e;
+    bool running = true;
+    while(running)
+    {
+        Uint64 start = SDL_GetTicks64();
+        while (SDL_PollEvent(&e) != 0) 
+        {
+            if (e.type == SDL_QUIT || e.type == SDL_KEYDOWN)  // Quit the game
+            {
+                running = false;
+            }
+        }
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Black
+        SDL_RenderClear(renderer);
+        SDL_RenderCopy(renderer, score.text_texture, nullptr, &score.dest);
+        SDL_RenderPresent(renderer);
+        
+        float elapsed_ms = (SDL_GetTicks64() - start) ;
+        if (elapsed_ms < delta)
+        {
+            // Cap to 60 FPS
+            SDL_Delay(delta - elapsed_ms);
+        }
+
+    }
+}
 /**
  * Move the paddle left or right based on the key press.
  * 
@@ -541,7 +598,8 @@ void game_loop(
         SDL_RenderFillRect(renderer, &ball.rect);
 
         // Redraw the bricks
-        if (render_bricks(renderer, bricks) == 0)
+        render_bricks(renderer, bricks, score);
+        if (score.bricks_remaining == 0)
         {   
             running = false;
         }
@@ -565,6 +623,8 @@ void game_loop(
             SDL_Delay(delta - elapsed_ms);
         }
     }
+
+    show_end_screen(renderer, score, game_constants);
 
 }
 
