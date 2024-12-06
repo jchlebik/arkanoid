@@ -16,7 +16,33 @@
 #include "SDL.h"
 #include "SDL_ttf.h"
 
-// Constants
+/**
+ * Game settings
+ *  
+ * int screen_width: width of the game screen.
+ * int screen_height: height of the game screen.
+ * 
+ * int starting_row: row where the bricks start.
+ * int brick_rows: number of rows of bricks.
+ * int brick_cols: number of columns of bricks.
+ * int brick_spacing: spacing between bricks.
+ * int brick_width: width of a brick. The actual width of a brick ends up being brick_width - brick_spacing.
+ * int brick_height: height of a brick. The actual height of a brick ends up being brick_height - brick_spacing.
+ * 
+ * int paddle_width: width of the paddle.
+ * int paddle_height: height of the paddle.
+ * int paddle_speed: speed of the paddle.
+ * int paddle_offset: offset of the paddle from the bottom of the screen.
+ * 
+ * int ball_size: size of the ball.
+ * int ball_speed: speed of the ball.
+ * 
+ * int score_font_size: font size for the score.
+ * int score_pos_x: x position of the score.
+ * int score_pos_y: y position of the score.
+ * 
+ * int num_of_balls: number of balls the player has.
+ */
 struct GameSettings
 {
     const int screen_width;
@@ -44,7 +70,7 @@ struct GameSettings
 };
 
 /**
- * Ball struct
+ * Brick
  * 
  * SDL_Rect rect: x, y, width, height. x, y are the top left corner.
  * bool is_visible: this brick was hit by the ball yet or not.
@@ -61,7 +87,7 @@ struct Brick
 
 
 /**
- * Ball struct
+ * Ball
  * 
  * SDL_Rect rect: x, y, width, height. x, y are the top left corner.
  * int velocity_x: velocity in the x direction.
@@ -76,6 +102,17 @@ struct Ball
     bool is_moving;
 };
 
+/**
+ * Score
+ * 
+ * TTF_Font* font: font to render the score.
+ * SDL_Surface* text: surface to render the score onto.
+ * SDL_Texture* text_texture: texture to transform the surface on.
+ * SDL_Rect dest: screen rectangle on where to render the score.
+ * int points: number of points the player has.
+ * int balls_remaining: number of balls the player has remaining.
+ * int bricks_remaining: number of bricks still not hit.
+ */
 struct Score
 {
     TTF_Font* font;
@@ -102,7 +139,7 @@ int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_
 {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) 
     {
-        SDL_Log("SDL could not initialize! SDL_Error: %s \n", SDL_GetError());
+        SDL_LogError(SDL_LogCategory::SDL_LOG_CATEGORY_APPLICATION, "SDL could not initialize! SDL_Error: %s \n", SDL_GetError());
         return 1;
     }
 
@@ -116,20 +153,20 @@ int init(SDL_Window*& window, SDL_Renderer*& renderer, const GameSettings& game_
     );
     if (!window) 
     {
-        SDL_Log("Window could not be created! SDL_Error: %s \n", SDL_GetError());
+        SDL_LogError(SDL_LogCategory::SDL_LOG_CATEGORY_APPLICATION, "Window could not be created! SDL_Error: %s \n", SDL_GetError());
         return 2;
     }
 
     renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (!renderer) 
     {
-        SDL_Log("Renderer could not be created! SDL_Error: %s \n", SDL_GetError());
+         SDL_LogError(SDL_LogCategory::SDL_LOG_CATEGORY_APPLICATION,"Renderer could not be created! SDL_Error: %s \n", SDL_GetError());
         return 3;
     }
 
     if (TTF_Init() < 0) 
     {
-        SDL_Log("TTF could not initialize! TTF_Error: %s", TTF_GetError());
+         SDL_LogError(SDL_LogCategory::SDL_LOG_CATEGORY_APPLICATION,"TTF could not initialize! TTF_Error: %s", TTF_GetError());
         return 4;
     }
 
@@ -141,7 +178,7 @@ Score create_score(std::string_view font_path, const GameSettings& game_settings
     TTF_Font* font = TTF_OpenFont(font_path.data(), 20);
     if (!font) 
     {
-        SDL_Log("Failed to load font: %s\n", TTF_GetError());
+        SDL_LogError(SDL_LogCategory::SDL_LOG_CATEGORY_APPLICATION,"Failed to load font: %s\n", TTF_GetError());
     }
 
     return Score {
@@ -320,7 +357,15 @@ void render_bricks(SDL_Renderer* renderer, const std::vector<Brick>& bricks, Sco
     }
 }
 
-
+/**
+ * Shows a simple Congratulations or Game Over screen at the end of the game.
+ * 
+ * Params:
+ * SDL_Renderer* renderer: renderer to draw the screen.
+ * Score& score: score structure containing the font, surface and texture to draw the screen.
+ * const GameSettings& game_settings: game settings created at the start of the program.
+ * 
+ */
 void show_end_screen(SDL_Renderer* renderer, Score& score, const GameSettings& game_settings)
 {
     TTF_SetFontSize(score.font, 60);
@@ -389,10 +434,11 @@ void show_end_screen(SDL_Renderer* renderer, Score& score, const GameSettings& g
  * const GameSettings& game_settings: game settings created at the start of the program.
  *      Requires screen_width, paddle_speed.
  * 
+ * Returns:
+ * bool: true if the game should quit, false otherwise.
  */
-int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_settings)
+bool input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_settings)
 {
-    bool paddle_state = false;
     const Uint8* keyState = SDL_GetKeyboardState(nullptr);      // left or right arrows for movement
     if (keyState[SDL_SCANCODE_LEFT] && paddle.x > 0) 
     {
@@ -408,9 +454,9 @@ int input_actions(SDL_Rect& paddle, Ball& ball, const GameSettings& game_setting
     }
     if (keyState[SDL_SCANCODE_Q] || keyState[SDL_SCANCODE_ESCAPE])
     {
-        return 1;
+        return true;
     }
-    return 0;
+    return false;
 }
 
 /**
@@ -542,6 +588,7 @@ void game_loop(
     const GameSettings& game_constants
 ){
     bool running = true;
+    bool hard_quit = false;
     SDL_Event e;
 
     constexpr int desired_fps = 60; // fps is bound to physics in here, TODO: decouple
@@ -553,7 +600,7 @@ void game_loop(
     // Initial score render preparation
     update_score(renderer, score, game_constants);
 
-    while (running) 
+    while (running && !hard_quit) 
     {
         Uint64 start = SDL_GetTicks64();
         // Handle events
@@ -561,12 +608,12 @@ void game_loop(
         {
             if (e.type == SDL_QUIT)  // Quit the game
             {
-                running = false;
+                hard_quit = true;
             }
         }
 
         // Handle inputs 
-        if (input_actions(paddle, ball, game_constants) > 0)
+        if (input_actions(paddle, ball, game_constants))
         {
             running = false;
         }
@@ -623,8 +670,10 @@ void game_loop(
             SDL_Delay(delta - elapsed_ms);
         }
     }
-
-    show_end_screen(renderer, score, game_constants);
+    if (!hard_quit)
+    {
+        show_end_screen(renderer, score, game_constants);
+    }
 
 }
 
@@ -651,28 +700,28 @@ void cleanup(SDL_Window* window, SDL_Renderer* renderer, Score& score)
     SDL_Quit();
 }
 
-/**
- * Main function
- * 
- * Initializes the game and runs the game loop.
- * 
- */
-int main() 
-{
-    SDL_Window* window = nullptr;
-    SDL_Renderer* renderer = nullptr;
 
-    GameSettings game_constants{
-        .screen_width = 800, 
-        .screen_height = 600, 
+GameSettings get_settings()
+{
+    int screen_width = 800;
+    int screen_height = 600;
+
+    int brick_cols = 10;
+    int brick_spacing = 20;
+    int brick_width = screen_width / brick_cols;
+    int brick_height = 40;
+
+    return GameSettings{
+        .screen_width = screen_width, 
+        .screen_height = screen_height, 
 
         .starting_row = 2, 
         .brick_rows = 5, 
         .brick_cols = 10,
 
-        .brick_spacing = 20,
-        .brick_width = 800 / 10, 
-        .brick_height = 40,
+        .brick_spacing = brick_spacing,
+        .brick_width = brick_width, 
+        .brick_height = brick_height,
 
         .paddle_width = 100,
         .paddle_height = 10,
@@ -687,6 +736,20 @@ int main()
         .score_pos_y = 600 - 10,
         .num_of_balls = 3
     };
+}
+
+/**
+ * Main function
+ * 
+ * Initializes the game and runs the game loop.
+ * 
+ */
+int main() 
+{
+    SDL_Window* window = nullptr;
+    SDL_Renderer* renderer = nullptr;
+
+    GameSettings game_constants = get_settings();
 
     if (init(window, renderer, game_constants) > 0) 
     {
@@ -700,6 +763,10 @@ int main()
     SDL_Rect paddle = create_paddle(game_constants);
     Ball ball = create_ball(game_constants);
     Score score = create_score("assets/DejaVuSans.ttf", game_constants);
+    if (!score.font)
+    {
+        return -1;
+    }
 
     game_loop(renderer, bricks, paddle, ball, score, game_constants);
 
