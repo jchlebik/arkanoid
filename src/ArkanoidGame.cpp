@@ -165,8 +165,6 @@ bool ArkanoidGame::show_end_screen()
         (m_screen.height() - m_score.get_text_height())/2
     );
     
-
-    SDL_Event e;
     m_running = true;
     while(m_running)
     {

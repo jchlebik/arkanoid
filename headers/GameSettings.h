@@ -36,6 +36,31 @@ struct GameSettings
     const int num_of_balls;
 
     const int fps_limit;
+
+    GameSettings(
+        const int screen_width,
+        const int screen_height,
+        const int paddle_width,
+        const int paddle_height,
+        const int paddle_speed,
+        const int paddle_offset,
+        const int ball_size,
+        const int ball_speed,
+        const int num_of_balls,
+        const int fps_limit
+    ) :
+        screen_width{ screen_width },
+        screen_height{ screen_height },
+        paddle_width{ paddle_width },
+        paddle_height{ paddle_height },
+        paddle_speed{ paddle_speed },
+        paddle_offset{ paddle_offset },
+        ball_size{ ball_size },
+        ball_speed{ ball_speed },
+        num_of_balls{ num_of_balls },
+        fps_limit{ fps_limit }
+    {
+    }
 };
 
 #endif // !GAMESETTINGS_H

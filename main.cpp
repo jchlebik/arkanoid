@@ -7,30 +7,29 @@
 #include "RowLayout.h"
 
 
-int main()
+int main(int argc, char* args[])
 {
     GameSettings settings = GameSettings{
-        .screen_width = 800,
-        .screen_height = 600,
-        .paddle_width = 100,
-        .paddle_height = 10,
-        .paddle_speed = 6,
-        .paddle_offset = 80,
-        .ball_size = 10,
-        .ball_speed = 4,
-        .num_of_balls = 3,
-        .fps_limit = 60
+        /* .screen_width = */ 800,
+        /* .screen_height = */ 600,
+        /* .paddle_width = */ 100,
+        /* .paddle_height = */ 10,
+        /* .paddle_speed = */ 6,
+        /* .paddle_offset = */ 80,
+        /* .ball_size = */ 10,
+        /* .ball_speed = */ 4,
+        /* .num_of_balls = */ 3,
+        /* .fps_limit = */ 60
     };
-    
 
     RowLayout layout = RowLayout(
         RowLayoutSettings{
-            .starting_row = 2,
-            .brick_rows = 4,
-            .brick_cols = 10,
-            .brick_spacing = 10,
-            .brick_width = 800 / 10,
-            .brick_height = 30
+            /*.starting_row = */ 2,
+            /*.brick_rows = */ 4,
+            /*.brick_cols = */ 10,
+            /*.brick_spacing = */ 10,
+            /*.brick_width = */ 800 / 10,
+            /*.brick_height = */ 30
         }
     );
 
