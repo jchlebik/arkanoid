@@ -2,7 +2,7 @@
 Arkanoid implementation using SDL2
 
 ## Introduction
-This project is an implementation of the classic Arkanoid game using the SDL2 library. The game involves controlling a paddle to bounce a ball and break bricks.
+This project is an implementation of the classic Arkanoid game using the SDL2 library. The game involves controlling a paddle to bounce a ball and break bricks. The implementation is very barebones but modular. Extending it with extra logic (special types of bricks, ball logic or different layouts) should be easy given more time. Look into the headers for documenting code comments and then into the src folder for the implementation details.
 
 ## Installation
 To install and run this project, follow these steps:
@@ -32,4 +32,3 @@ To play the game, run the following command:
 ```
 
 ## Extending
-The implementation is very barebones but modular. Extending it with extra logic (special types of bricks, ball logic or different layouts) should be easy given more time. Look into the headers for documentation and then into the src files.
